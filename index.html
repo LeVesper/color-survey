@@ -376,27 +376,41 @@ function record(row) {
 }
 
 /* Send waiting answers to the server. If it fails (no internet, etc.) they stay in the queue and are retried later.
-   row_id makes a repeated send harmless: the server ignores rows it already has. */
+   row_id is unique in the database: if an answer was already stored (the reply got lost on a bad connection),
+   the server says "409 conflict" and we then re-send the batch row by row, dropping the ones it already has. */
+function sendRows(rows) {
+  return fetch(SUPABASE_URL + '/rest/v1/responses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Prefer': 'return=minimal' },
+    body: JSON.stringify(rows),
+    keepalive: true
+  });
+}
 async function flush() {
   if (!SUPABASE_URL || !SUPABASE_KEY || flushing || !OUTBOX.length) return;
   flushing = true;
   const batch = OUTBOX.slice(0, 100);
+  const done = new Set();
   try {
-    const r = await fetch(SUPABASE_URL + '/rest/v1/responses?on_conflict=row_id', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
-      body: JSON.stringify(batch),
-      keepalive: true
-    });
+    const r = await sendRows(batch);
     if (r.ok) {
-      OUTBOX = OUTBOX.slice(batch.length);
-      store('cs_outbox', OUTBOX);
+      batch.forEach(x => done.add(x.row_id));
       lastError = '';
+    } else if (r.status === 409) {
+      for (const row of batch) {
+        const r1 = await sendRows([row]);
+        if (r1.ok || r1.status === 409) { done.add(row.row_id); lastError = ''; }
+        else { lastError = r1.status + ' ' + (await r1.text()).slice(0, 200); break; }
+      }
     } else {
       lastError = r.status + ' ' + (await r.text()).slice(0, 200);
     }
   } catch (e) {
     lastError = 'network: ' + e.message;
+  }
+  if (done.size) {
+    OUTBOX = OUTBOX.filter(x => !done.has(x.row_id));
+    store('cs_outbox', OUTBOX);
   }
   flushing = false;
   if (OUTBOX.length && !lastError) flush();
