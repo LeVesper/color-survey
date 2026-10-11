@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light only">
+<title>Color survey</title>
+<style>
+:root{color-scheme:light only}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:#808080;color:#222;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:1.4;-webkit-tap-highlight-color:transparent}
+#app{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 14px}
+.card{background:#f2f2f2;border-radius:16px;padding:26px 22px;width:100%;max-width:520px;box-shadow:0 2px 12px rgba(0,0,0,.18)}
+h1{font-size:26px;margin:0 0 14px}
+p{margin:0 0 12px}
+.q{margin:20px 0 8px;font-weight:600}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{border:2px solid #bbb;background:#fff;color:#222;border-radius:10px;padding:9px 14px;font:inherit;cursor:pointer}
+.opt.on{background:#333;border-color:#333;color:#fff}
+.hint{font-size:14px;color:#555;margin:8px 0 0}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font:inherit;font-weight:600;background:#333;color:#fff;cursor:pointer;margin-top:22px}
+.btn:disabled{background:#aaa;cursor:not-allowed}
+.btn.secondary{background:transparent;color:#333;border:2px solid #333;margin-top:10px}
+.link{background:none;border:0;color:#555;text-decoration:underline;font:inherit;cursor:pointer;margin:14px 8px 0;font-size:14px}
+.trial{width:100%;max-width:560px;display:flex;flex-direction:column;align-items:center;gap:16px}
+.prompt{color:#eee;font-size:18px;margin:0;text-align:center}
+.swatch{width:min(60vw,32vh,260px);height:min(60vw,32vh,260px);background:#808080}
+.words{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:100%}
+.word{flex:1 1 calc(33.333% - 8px);min-width:96px;border:0;border-radius:10px;padding:12px 6px;font:inherit;font-weight:600;background:#e6e6e6;color:#222;cursor:pointer}
+.word.unsure{background:transparent;color:#eee;border:2px solid #eee;font-weight:500}
+.word:active{background:#cfcfcf;color:#222}
+.words.locked{pointer-events:none}
+.prog{width:100%;max-width:420px;height:6px;background:#6a6a6a;border-radius:3px;overflow:hidden}
+.prog>div{height:100%;background:#eee;width:0;transition:width .2s}
+.count{color:#ddd;font-size:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* =====================================================================
+   SETTINGS: the part you can edit
+   ===================================================================== */
+
+const SURVEY_VERSION = "demo-2"; // Written into every answer, so different versions can be told apart later.
+                                  // Changing it also wipes the saved test answers on your own device. Change it between test versions, never after the real launch.
+// Server (Supabase). The publishable key is meant to be public: the database only lets this page ADD rows, never read them.
+const SUPABASE_URL = "https://lmfjfvyptzihlbrzzhji.supabase.co";
+const SUPABASE_KEY = "sb_publishable_iJ050MD-t0F2WLg6YdyuFg_gMZZkJtp";
+
+const DEMO_MODE = true;     // true = shows "download answers" buttons at the end. Set to false for the real launch.
+const ROUND_SIZE = 25;      // colors per round
+const BLANK_MS = 350;       // short grey pause between colors (milliseconds)
+
+// Color-name lists. To add a language: copy one block, change the key (e.g. de), name, prompt, notSure and words.
+// The words appear as buttons, in a random order for each person ("not sure" is always last).
+const LANGUAGES = {
+  en: {
+    name: "English",
+    prompt: "What color is this?",
+    notSure: "Not sure (?)",
+    words: ["Red","Orange","Yellow","Green","Blue","Purple","Brown","Pink","Black","Gray","White"]
+  },
+  ru: {
+    name: "Русский",
+    prompt: "Какой это цвет?",
+    notSure: "Не уверен(а) (?)",
+    words: ["Красный","Оранжевый","Жёлтый","Зелёный","Голубой","Синий","Фиолетовый","Коричневый","Розовый","Чёрный","Серый","Белый"]
+  },
+  lv: {
+    name: "Latviešu",
+    prompt: "Kāda ir šī krāsa?",
+    notSure: "Neesmu pārliecināts(-a) (?)",
+    words: ["Sarkana","Oranža","Dzeltena","Zaļa","Zila","Violeta","Brūna","Rozā","Melna","Pelēka","Balta"]
+  }
+};
+
+// Languages offered in the question "Which other languages do you speak?"
+const OTHER_LANGS = ["English","Russian","Latvian","Spanish","French","German","Ukrainian","Norwegian","Bulgarian","Romanian","Greek"];
+
+const AGE_GROUPS = ["Under 18","18–24","25–34","35–44","45–54","55–64","65+"];
+
+// Welcome screen: the first line is the big heading, the others are paragraphs.
+const WELCOME = [
+  "Hi!",
+  "Welcome to the survey on color differences in languages!",
+  "Your anonymous responses will be very valuable to us.",
+  "Enjoy the survey!"
+];
+
+// All other texts of the survey (English only for now)
+const UI = {
+  start: "Start",
+  qNative: "What is your native language?",
+  hintNative: "If you have two, pick the one in which it is easier for you to name colors.",
+  otherLangLabel: "Other language",
+  qOther: "Which other languages do you speak? (optional)",
+  qAge: "Your age group",
+  qCvd: "Do you have color vision deficiency (color blindness)?",
+  yes: "Yes", no: "No", notSure: "Not sure",
+  brightness: "For best results: set your screen brightness to maximum and turn off night mode or the blue-light filter.",
+  sorryTitle: "Thank you for your interest!",
+  sorryText: "At the moment the survey is only available for native speakers of English, Russian and Latvian. We hope to add more languages soon.",
+  back: "Back",
+  thanksTitle: "Thank you!",
+  again: "One more round",
+  done: "I'm done",
+  finalTitle: "Thanks a lot!",
+  finalText: "Your answers are saved. You can close this page now."
+};
+
+/* =====================================================================
+   PALETTE: 200 colors (id, hex). Generated automatically, no need to edit.
+   ===================================================================== */
+const PALETTE = [
+  [1,"#562a38"],
+  [2,"#731638"],
+  [3,"#763d4e"],
+  [4,"#8a5968"],
+  [5,"#b1667a"],
+  [6,"#9c1d3e"],
+  [7,"#be234a"],
+  [8,"#d82c5b"],
+  [9,"#f42859"],
+  [10,"#e85b75"],
+  [11,"#ee7c93"],
+  [12,"#cc201d"],
+  [13,"#64190f"],
+  [14,"#841f14"],
+  [15,"#a42018"],
+  [16,"#af4226"],
+  [17,"#d44927"],
+  [18,"#f12824"],
+  [19,"#cb654d"],
+  [20,"#f25a30"],
+  [21,"#ef775b"],
+  [22,"#ec9476"],
+  [23,"#481e0f"],
+  [24,"#673a22"],
+  [25,"#874827"],
+  [26,"#926047"],
+  [27,"#aa7860"],
+  [28,"#c58c71"],
+  [29,"#d2a792"],
+  [30,"#f2b192"],
+  [31,"#f4ccb6"],
+  [32,"#b15f25"],
+  [33,"#d0742a"],
+  [34,"#ee842d"],
+  [35,"#f69e4d"],
+  [36,"#a97d30"],
+  [37,"#c7912e"],
+  [38,"#e1a32f"],
+  [39,"#f2b642"],
+  [40,"#372d0d"],
+  [41,"#4c3f15"],
+  [42,"#604f1e"],
+  [43,"#746026"],
+  [44,"#877031"],
+  [45,"#a69568"],
+  [46,"#c1ac79"],
+  [47,"#dac695"],
+  [48,"#f3cb36"],
+  [49,"#efd690"],
+  [50,"#8f852b"],
+  [51,"#a4982b"],
+  [52,"#baab30"],
+  [53,"#ccba62"],
+  [54,"#d0c228"],
+  [55,"#dad067"],
+  [56,"#ebde38"],
+  [57,"#f5ee85"],
+  [58,"#f5ebbc"],
+  [59,"#f7f33c"],
+  [60,"#7da140"],
+  [61,"#8abb3a"],
+  [62,"#a6d23d"],
+  [63,"#b9ea74"],
+  [64,"#d1f746"],
+  [65,"#1d3a15"],
+  [66,"#435830"],
+  [67,"#356b27"],
+  [68,"#5d7c3c"],
+  [69,"#6e915b"],
+  [70,"#91b681"],
+  [71,"#a4d191"],
+  [72,"#94f13b"],
+  [73,"#bae6b1"],
+  [74,"#d5f9b7"],
+  [75,"#20541a"],
+  [76,"#2a8229"],
+  [77,"#3a9b31"],
+  [78,"#3bb82b"],
+  [79,"#44b663"],
+  [80,"#46d634"],
+  [81,"#51d775"],
+  [82,"#42f33a"],
+  [83,"#5df488"],
+  [84,"#3bf7b1"],
+  [85,"#238768"],
+  [86,"#299c77"],
+  [87,"#30b28b"],
+  [88,"#32c893"],
+  [89,"#35e1a5"],
+  [90,"#6ce5c1"],
+  [91,"#86f9d4"],
+  [92,"#0f372e"],
+  [93,"#194e42"],
+  [94,"#226153"],
+  [95,"#2b7464"],
+  [96,"#63ada2"],
+  [97,"#82c2b3"],
+  [98,"#46d3b5"],
+  [99,"#93d5c8"],
+  [100,"#38f6d2"],
+  [101,"#a3e8dc"],
+  [102,"#bbf9ec"],
+  [103,"#418780"],
+  [104,"#429d95"],
+  [105,"#36c1bb"],
+  [106,"#3ddeda"],
+  [107,"#4df5f1"],
+  [108,"#3f8ca2"],
+  [109,"#2ca1b9"],
+  [110,"#37b9d1"],
+  [111,"#40cdeb"],
+  [112,"#45dff6"],
+  [113,"#8ae2f6"],
+  [114,"#b9e7f5"],
+  [115,"#123f51"],
+  [116,"#194d62"],
+  [117,"#295c6b"],
+  [118,"#2e6a7d"],
+  [119,"#397a8d"],
+  [120,"#6a9baf"],
+  [121,"#46a8d3"],
+  [122,"#7fb4c9"],
+  [123,"#91cce6"],
+  [124,"#0b2f3f"],
+  [125,"#165a82"],
+  [126,"#1b6c9b"],
+  [127,"#227db1"],
+  [128,"#2a8ec6"],
+  [129,"#269ce1"],
+  [130,"#32aef2"],
+  [131,"#4ebef2"],
+  [132,"#2655aa"],
+  [133,"#306ecc"],
+  [134,"#3885ec"],
+  [135,"#759bef"],
+  [136,"#1d285a"],
+  [137,"#161580"],
+  [138,"#1b19bc"],
+  [139,"#2e4175"],
+  [140,"#21379a"],
+  [141,"#2122ed"],
+  [142,"#2440cc"],
+  [143,"#4a5a8b"],
+  [144,"#2c58ee"],
+  [145,"#6172aa"],
+  [146,"#788cbf"],
+  [147,"#99ace3"],
+  [148,"#bac9f2"],
+  [149,"#351b91"],
+  [150,"#4922ba"],
+  [151,"#5122e6"],
+  [152,"#574dbe"],
+  [153,"#6a35f0"],
+  [154,"#6a62e9"],
+  [155,"#7f7dea"],
+  [156,"#621fa0"],
+  [157,"#7b27c2"],
+  [158,"#8e26e9"],
+  [159,"#9858e2"],
+  [160,"#bb83e9"],
+  [161,"#3e1851"],
+  [162,"#591773"],
+  [163,"#573664"],
+  [164,"#714d84"],
+  [165,"#9050a9"],
+  [166,"#8e6f9f"],
+  [167,"#b925ea"],
+  [168,"#c359ec"],
+  [169,"#b08dbf"],
+  [170,"#ccaae0"],
+  [171,"#eac6f1"],
+  [172,"#85218b"],
+  [173,"#a825b1"],
+  [174,"#cc30c5"],
+  [175,"#b368c0"],
+  [176,"#eb2ce9"],
+  [177,"#e965e5"],
+  [178,"#e991eb"],
+  [179,"#861b5c"],
+  [180,"#a41e73"],
+  [181,"#bf2a80"],
+  [182,"#d4279d"],
+  [183,"#ce5f9a"],
+  [184,"#f22cb8"],
+  [185,"#f264b7"],
+  [186,"#ed95bc"],
+  [187,"#4f112b"],
+  [188,"#a14566"],
+  [189,"#ef2c89"],
+  [190,"#c48a9b"],
+  [191,"#efbaca"],
+  [192,"#000000"],
+  [193,"#1b1b1b"],
+  [194,"#3d3d3d"],
+  [195,"#636363"],
+  [196,"#868686"],
+  [197,"#ababab"],
+  [198,"#cecece"],
+  [199,"#e8e8e8"],
+  [200,"#ffffff"]
+];
+
+/* =====================================================================
+   CODE: no need to edit below this line
+   ===================================================================== */
+
+const $app = document.getElementById('app');
+const S = { pid:null, lang:null, other:[], age:null, cvd:null, order:[], round:0, queue:[], idx:0, total:0, t0:0 };
+
+function store(key, value) {
+  try {
+    if (value === undefined) { const x = localStorage.getItem(key); return x ? JSON.parse(x) : null; }
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) { return null; }
+}
+function shuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function newId(n) {
+  const b = new Uint8Array(n || 5); crypto.getRandomValues(b);
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+}
+
+if (store('cs_version') !== SURVEY_VERSION) {
+  try { ['cs_pid', 'cs_rows', 'cs_seen', 'cs_outbox'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  store('cs_version', SURVEY_VERSION);
+}
+S.pid = store('cs_pid') || newId();
+store('cs_pid', S.pid);
+let ROWS = store('cs_rows') || [];
+let OUTBOX = store('cs_outbox') || [];   // answers not yet confirmed by the server
+let flushing = false, lastError = '';
+
+/* Choose the colors for one round. Right now: random, and the same person never sees a color twice
+   until they have seen all 200. LATER: this is the place to ask the server for the least-shown colors. */
+function pickColors(n) {
+  let seen = new Set(store('cs_seen') || []);
+  let pool = PALETTE.filter(c => !seen.has(c[0]));
+  let picked = [];
+  if (pool.length < n) {
+    picked = pool.slice();
+    seen = new Set();
+    pool = PALETTE.filter(c => picked.indexOf(c) < 0);
+  }
+  picked = picked.concat(shuffle(pool).slice(0, n - picked.length));
+  picked.forEach(c => seen.add(c[0]));
+  store('cs_seen', Array.from(seen));
+  return shuffle(picked);
+}
+
+/* Save one answer on the device and queue it for the server. */
+function record(row) {
+  ROWS.push(row);
+  store('cs_rows', ROWS);
+  OUTBOX.push(row);
+  store('cs_outbox', OUTBOX);
+  flush();
+}
+
+/* Send waiting answers to the server. If it fails (no internet, etc.) they stay in the queue and are retried later.
+   row_id makes a repeated send harmless: the server ignores rows it already has. */
+async function flush() {
+  if (!SUPABASE_URL || !SUPABASE_KEY || flushing || !OUTBOX.length) return;
+  flushing = true;
+  const batch = OUTBOX.slice(0, 100);
+  try {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/responses?on_conflict=row_id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify(batch),
+      keepalive: true
+    });
+    if (r.ok) {
+      OUTBOX = OUTBOX.slice(batch.length);
+      store('cs_outbox', OUTBOX);
+      lastError = '';
+    } else {
+      lastError = r.status + ' ' + (await r.text()).slice(0, 200);
+    }
+  } catch (e) {
+    lastError = 'network: ' + e.message;
+  }
+  flushing = false;
+  if (OUTBOX.length && !lastError) flush();
+}
+setInterval(flush, 20000);
+window.addEventListener('online', flush);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+window.addEventListener('pagehide', flush);
+
+function syncText() {
+  if (!SUPABASE_URL) return 'Server: not configured';
+  return 'Answers on this device: ' + ROWS.length + ' · sent to server: ' + (ROWS.length - OUTBOX.length) +
+    (OUTBOX.length ? ' · waiting: ' + OUTBOX.length : '') + (lastError ? ' · last error: ' + lastError : '');
+}
+
+function toCsv() {
+  if (!ROWS.length) return '';
+  const keys = Object.keys(ROWS[0]);
+  const esc = v => { v = String(v === undefined || v === null ? '' : v); return /[",;\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  return [keys.join(',')].concat(ROWS.map(r => keys.map(k => esc(r[k])).join(','))).join('\n');
+}
+function downloadCsv() {
+  const blob = new Blob(['﻿' + toCsv()], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'color_survey_' + S.pid + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function demoTools() {
+  if (!DEMO_MODE) return '';
+  return '<p class="hint" id="sync" style="text-align:center;margin-top:16px"></p>' +
+         '<div style="text-align:center"><button class="link" id="dl">Demo: download answers (CSV)</button>' +
+         '<button class="link" id="reset">Demo: clear saved data</button></div>';
+}
+function wireDemoTools() {
+  const sy = document.getElementById('sync');
+  if (sy) { const upd = () => { if (document.body.contains(sy)) { sy.textContent = syncText(); setTimeout(upd, 1500); } }; upd(); }
+  const dl = document.getElementById('dl'), rs = document.getElementById('reset');
+  if (dl) dl.onclick = downloadCsv;
+  if (rs) rs.onclick = () => {
+    if (confirm('Delete all saved answers on this device? Download them first if you need them.')) {
+      try { localStorage.clear(); } catch (e) {}
+      location.reload();
+    }
+  };
+}
+
+/* ---------- screens ---------- */
+
+function welcome() {
+  $app.innerHTML = '<div class="card"><h1>' + WELCOME[0] + '</h1>' +
+    WELCOME.slice(1).map(t => '<p>' + t + '</p>').join('') +
+    '<button class="btn" id="go">' + UI.start + '</button></div>';
+  document.getElementById('go').onclick = questionnaire;
+}
+
+function group(id, items, multi) {
+  return '<div class="opts" data-g="' + id + '" data-multi="' + (multi ? 1 : 0) + '">' +
+    items.map(x => '<button type="button" class="opt" data-v="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>';
+}
+
+function questionnaire() {
+  const langs = Object.keys(LANGUAGES).map(k => [k, LANGUAGES[k].name]).concat([['other', UI.otherLangLabel]]);
+  $app.innerHTML = '<div class="card">' +
+    '<p class="q" style="margin-top:0">' + UI.qNative + '</p>' + group('lang', langs) +
+    '<p class="hint">' + UI.hintNative + '</p>' +
+    '<p class="q">' + UI.qOther + '</p>' + group('other', OTHER_LANGS.map(x => [x, x]), true) +
+    '<p class="q">' + UI.qAge + '</p>' + group('age', AGE_GROUPS.map(x => [x, x])) +
+    '<p class="q">' + UI.qCvd + '</p>' + group('cvd', [['yes', UI.yes], ['no', UI.no], ['not_sure', UI.notSure]]) +
+    '<p class="hint" style="margin-top:20px">' + UI.brightness + '</p>' +
+    '<button class="btn" id="go" disabled>' + UI.start + '</button></div>';
+
+  const go = document.getElementById('go');
+  const check = () => { go.disabled = !(S.lang && S.age && S.cvd); };
+  S.lang = null; S.age = null; S.cvd = null; S.other = [];
+  document.querySelectorAll('.opts').forEach(box => {
+    box.onclick = e => {
+      const b = e.target.closest('.opt'); if (!b) return;
+      const g = box.dataset.g, v = b.dataset.v;
+      if (box.dataset.multi === '1') {
+        b.classList.toggle('on');
+        S.other = Array.from(box.querySelectorAll('.opt.on')).map(x => x.dataset.v);
+      } else {
+        box.querySelectorAll('.opt').forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+        S[g] = v;
+      }
+      check();
+    };
+  });
+  go.onclick = () => {
+    if (S.lang === 'other') { return sorry(); }
+    S.order = shuffle(LANGUAGES[S.lang].words.map((w, i) => i));
+    S.round = 0; S.total = 0;
+    startRound();
+  };
+}
+
+function sorry() {
+  $app.innerHTML = '<div class="card"><h1>' + UI.sorryTitle + '</h1><p>' + UI.sorryText + '</p>' +
+    '<button class="btn secondary" id="back">' + UI.back + '</button></div>';
+  document.getElementById('back').onclick = questionnaire;
+}
+
+function startRound() {
+  S.round++; S.queue = pickColors(ROUND_SIZE); S.idx = 0;
+  const L = LANGUAGES[S.lang];
+  $app.innerHTML = '<div class="trial">' +
+    '<div class="prog"><div id="bar"></div></div>' +
+    '<div class="count" id="cnt"></div>' +
+    '<p class="prompt">' + L.prompt + '</p>' +
+    '<div class="swatch" id="sw"></div>' +
+    '<div class="words locked" id="words">' +
+      S.order.map(i => '<button class="word" data-i="' + i + '">' + L.words[i] + '</button>').join('') +
+      '<button class="word unsure" data-i="-1">' + L.notSure + '</button>' +
+    '</div></div>';
+  document.getElementById('words').onclick = e => {
+    const b = e.target.closest('.word'); if (!b) return;
+    b.blur();
+    answer(parseInt(b.dataset.i, 10));
+  };
+  nextTrial();
+}
+
+function nextTrial() {
+  if (S.idx >= S.queue.length) return endScreen();
+  const sw = document.getElementById('sw'), words = document.getElementById('words');
+  words.classList.add('locked');
+  sw.style.background = '#808080';
+  document.getElementById('bar').style.width = (S.idx / S.queue.length * 100) + '%';
+  document.getElementById('cnt').textContent = (S.idx + 1) + ' / ' + S.queue.length;
+  setTimeout(() => {
+    sw.style.background = S.queue[S.idx][1];
+    words.classList.remove('locked');
+    S.t0 = performance.now();
+  }, BLANK_MS);
+}
+
+function answer(i) {
+  const rt = Math.round(performance.now() - S.t0);
+  const c = S.queue[S.idx], L = LANGUAGES[S.lang];
+  document.getElementById('words').classList.add('locked');
+  record({
+    survey_version: SURVEY_VERSION,
+    row_id: newId(8),
+    participant_id: S.pid,
+    time_utc: new Date().toISOString(),
+    native_language: S.lang,
+    other_languages: S.other.join('; '),
+    age_group: S.age,
+    color_vision: S.cvd,
+    input: ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'touch' : 'mouse',
+    screen: screen.width + 'x' + screen.height,
+    pixel_ratio: window.devicePixelRatio,
+    round: S.round,
+    trial_in_round: S.idx + 1,
+    trial_total: S.total + 1,
+    color_id: c[0],
+    hex: c[1],
+    answer: i < 0 ? 'NOT_SURE' : L.words[i],
+    answer_index: i,
+    rt_ms: rt,
+    button_order: S.order.join('-')
+  });
+  S.idx++; S.total++;
+  nextTrial();
+}
+
+function endScreen() {
+  $app.innerHTML = '<div class="card"><h1>' + UI.thanksTitle + '</h1>' +
+    '<p>' + 'It would help us a lot if you did one more round. It takes about a minute.' + '</p>' +
+    '<button class="btn" id="again">' + UI.again + '</button>' +
+    '<button class="btn secondary" id="done">' + UI.done + '</button>' + demoTools() + '</div>';
+  document.getElementById('again').onclick = startRound;
+  document.getElementById('done').onclick = finalScreen;
+  wireDemoTools();
+}
+
+function finalScreen() {
+  $app.innerHTML = '<div class="card"><h1>' + UI.finalTitle + '</h1><p>' + UI.finalText + '</p>' +
+    '<button class="btn secondary" id="again">' + UI.again + '</button>' + demoTools() + '</div>';
+  document.getElementById('again').onclick = startRound;
+  wireDemoTools();
+}
+
+flush();
+welcome();
+</script>
+</body>
+</html>
