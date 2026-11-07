@@ -28,7 +28,7 @@ p{margin:0 0 12px}
 .swatch{width:min(60vw,28vh,260px);height:min(60vw,28vh,260px);background:#808080}
 .words{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
 @media (min-width:540px){.words{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.word{min-height:44px;border:0;border-radius:10px;padding:8px;font:inherit;font-size:clamp(15px,4.4vw,17px);line-height:1.2;font-weight:600;text-align:center;white-space:normal;overflow-wrap:anywhere;hyphens:none;background:#e6e6e6;color:#222;cursor:pointer}
+.word{min-height:44px;border:0;border-radius:10px;padding:8px 6px;font:inherit;font-size:clamp(14px,4.2vw,17px);line-height:1.2;font-weight:600;text-align:center;white-space:normal;overflow-wrap:anywhere;hyphens:none;background:#e6e6e6;color:#222;cursor:pointer}
 .word.unsure{grid-column:1/-1;background:transparent;color:#eee;border:2px solid #eee;font-weight:500}
 .word:active{background:#cfcfcf;color:#222}
 .words.locked{pointer-events:none}
@@ -44,50 +44,294 @@ p{margin:0 0 12px}
    SETTINGS: the part you can edit
    ===================================================================== */
 
-const SURVEY_VERSION = "demo-2"; // Written into every answer, so different versions can be told apart later.
+const SURVEY_VERSION = "final"; // Written into every answer, so different versions can be told apart later.
                                   // Changing it also wipes the saved test answers on your own device. Change it between test versions, never after the real launch.
 // Server (Supabase). The publishable key is meant to be public: the database only lets this page ADD rows, never read them.
 const SUPABASE_URL = "https://lmfjfvyptzihlbrzzhji.supabase.co";
 const SUPABASE_KEY = "sb_publishable_iJ050MD-t0F2WLg6YdyuFg_gMZZkJtp";
 
-const DEMO_MODE = true;     // true = shows "download answers" buttons at the end. Set to false for the real launch.
+const DEMO_MODE = false;    // true = shows "download answers" buttons at the end. Set to false for the real launch.
 const ROUND_SIZE = 25;      // colors per round
 const BLANK_MS = 350;       // short grey pause between colors (milliseconds)
 
-// Color-name lists. To add a language: copy one block, change the key (e.g. de), name, prompt, notSure and words.
-// The words appear as buttons, in a random order for each person ("not sure" is always last).
+// Color-name lists, one block per language. The block key (en, ru, ...) is saved in the data as the native language.
+// Inside "colors", the left side (red, orange, ...) is the universal color category that is saved with every answer,
+// the right side is the word shown on the button. To add a language: copy a block and change everything except the left sides.
+// "light_blue" is included only for languages that have a separate everyday word for it.
 const LANGUAGES = {
   en: {
     name: "English",
     prompt: "What color is this?",
     notSure: "Not sure (?)",
-    words: ["Red","Orange","Yellow","Green","Blue","Purple","Brown","Pink","Black","Gray","White"]
+    colors: {
+      red: "Red",
+      orange: "Orange",
+      yellow: "Yellow",
+      green: "Green",
+      blue: "Blue",
+      purple: "Purple",
+      brown: "Brown",
+      pink: "Pink",
+      black: "Black",
+      grey: "Gray",
+      white: "White"
+    }
   },
   ru: {
     name: "Русский",
     prompt: "Какой это цвет?",
     notSure: "Не уверен(а) (?)",
-    words: ["Красный","Оранжевый","Жёлтый","Зелёный","Голубой","Синий","Фиолетовый","Коричневый","Розовый","Чёрный","Серый","Белый"]
+    colors: {
+      red: "Красный",
+      orange: "Оранжевый",
+      yellow: "Жёлтый",
+      green: "Зелёный",
+      light_blue: "Голубой",
+      blue: "Синий",
+      purple: "Фиолетовый",
+      brown: "Коричневый",
+      pink: "Розовый",
+      black: "Чёрный",
+      grey: "Серый",
+      white: "Белый"
+    }
   },
   lv: {
     name: "Latviešu",
     prompt: "Kāda ir šī krāsa?",
     notSure: "Neesmu pārliecināts(-a) (?)",
-    words: ["Sarkana","Oranža","Dzeltena","Zaļa","Zila","Violeta","Brūna","Rozā","Melna","Pelēka","Balta"]
+    colors: {
+      red: "Sarkana",
+      orange: "Oranža",
+      yellow: "Dzeltena",
+      green: "Zaļa",
+      blue: "Zila",
+      purple: "Violeta",
+      brown: "Brūna",
+      pink: "Rozā",
+      black: "Melna",
+      grey: "Pelēka",
+      white: "Balta"
+    }
+  },
+  es: {
+    name: "Español",
+    prompt: "¿De qué color es esto?",
+    notSure: "No estoy seguro/a (?)",
+    colors: {
+      red: "Rojo",
+      orange: "Naranja",
+      yellow: "Amarillo",
+      green: "Verde",
+      light_blue: "Celeste",
+      blue: "Azul",
+      purple: "Morado",
+      brown: "Marrón",
+      pink: "Rosa",
+      black: "Negro",
+      grey: "Gris",
+      white: "Blanco"
+    }
+  },
+  fr: {
+    name: "Français",
+    prompt: "De quelle couleur est-ce ?",
+    notSure: "Pas sûr(e) (?)",
+    colors: {
+      red: "Rouge",
+      orange: "Orange",
+      yellow: "Jaune",
+      green: "Vert",
+      blue: "Bleu",
+      purple: "Violet",
+      brown: "Marron",
+      pink: "Rose",
+      black: "Noir",
+      grey: "Gris",
+      white: "Blanc"
+    }
+  },
+  it: {
+    name: "Italiano",
+    prompt: "Di che colore è?",
+    notSure: "Non sono sicuro/a (?)",
+    colors: {
+      red: "Rosso",
+      orange: "Arancione",
+      yellow: "Giallo",
+      green: "Verde",
+      light_blue: "Azzurro",
+      blue: "Blu",
+      purple: "Viola",
+      brown: "Marrone",
+      pink: "Rosa",
+      black: "Nero",
+      grey: "Grigio",
+      white: "Bianco"
+    }
+  },
+  de: {
+    name: "Deutsch",
+    prompt: "Welche Farbe ist das?",
+    notSure: "Nicht sicher (?)",
+    colors: {
+      red: "Rot",
+      orange: "Orange",
+      yellow: "Gelb",
+      green: "Grün",
+      blue: "Blau",
+      purple: "Lila",
+      brown: "Braun",
+      pink: "Rosa",
+      black: "Schwarz",
+      grey: "Grau",
+      white: "Weiß"
+    }
+  },
+  pl: {
+    name: "Polski",
+    prompt: "Jaki to kolor?",
+    notSure: "Nie jestem pewien/pewna (?)",
+    colors: {
+      red: "Czerwony",
+      orange: "Pomarańczowy",
+      yellow: "Żółty",
+      green: "Zielony",
+      blue: "Niebieski",
+      purple: "Fioletowy",
+      brown: "Brązowy",
+      pink: "Różowy",
+      black: "Czarny",
+      grey: "Szary",
+      white: "Biały"
+    }
+  },
+  uk: {
+    name: "Українська",
+    prompt: "Який це колір?",
+    notSure: "Не впевнений(-а) (?)",
+    colors: {
+      red: "Червоний",
+      orange: "Помаранчевий",
+      yellow: "Жовтий",
+      green: "Зелений",
+      light_blue: "Блакитний",
+      blue: "Синій",
+      purple: "Фіолетовий",
+      brown: "Коричневий",
+      pink: "Рожевий",
+      black: "Чорний",
+      grey: "Сірий",
+      white: "Білий"
+    }
+  },
+  nl: {
+    name: "Nederlands",
+    prompt: "Welke kleur is dit?",
+    notSure: "Niet zeker (?)",
+    colors: {
+      red: "Rood",
+      orange: "Oranje",
+      yellow: "Geel",
+      green: "Groen",
+      blue: "Blauw",
+      purple: "Paars",
+      brown: "Bruin",
+      pink: "Roze",
+      black: "Zwart",
+      grey: "Grijs",
+      white: "Wit"
+    }
+  },
+  no: {
+    name: "Norsk",
+    prompt: "Hvilken farge er dette?",
+    notSure: "Usikker (?)",
+    colors: {
+      red: "Rød",
+      orange: "Oransje",
+      yellow: "Gul",
+      green: "Grønn",
+      blue: "Blå",
+      purple: "Lilla",
+      brown: "Brun",
+      pink: "Rosa",
+      black: "Svart",
+      grey: "Grå",
+      white: "Hvit"
+    }
+  },
+  bg: {
+    name: "Български",
+    prompt: "Какъв цвят е това?",
+    notSure: "Не съм сигурен/сигурна (?)",
+    colors: {
+      red: "Червен",
+      orange: "Оранжев",
+      yellow: "Жълт",
+      green: "Зелен",
+      blue: "Син",
+      purple: "Лилав",
+      brown: "Кафяв",
+      pink: "Розов",
+      black: "Черен",
+      grey: "Сив",
+      white: "Бял"
+    }
+  },
+  ro: {
+    name: "Română",
+    prompt: "Ce culoare este aceasta?",
+    notSure: "Nu sunt sigur(ă) (?)",
+    colors: {
+      red: "Roșu",
+      orange: "Portocaliu",
+      yellow: "Galben",
+      green: "Verde",
+      blue: "Albastru",
+      purple: "Mov",
+      brown: "Maro",
+      pink: "Roz",
+      black: "Negru",
+      grey: "Gri",
+      white: "Alb"
+    }
+  },
+  el: {
+    name: "Ελληνικά",
+    prompt: "Τι χρώμα είναι αυτό;",
+    notSure: "Δεν είμαι σίγουρος/η (?)",
+    colors: {
+      red: "Κόκκινο",
+      orange: "Πορτοκαλί",
+      yellow: "Κίτρινο",
+      green: "Πράσινο",
+      light_blue: "Γαλάζιο",
+      blue: "Μπλε",
+      purple: "Μοβ",
+      brown: "Καφέ",
+      pink: "Ροζ",
+      black: "Μαύρο",
+      grey: "Γκρι",
+      white: "Άσπρο"
+    }
   }
 };
+// (automatic, do not edit) lists of categories and words used by the code below
+for (const k in LANGUAGES) { const L = LANGUAGES[k]; L.cats = Object.keys(L.colors); L.words = Object.values(L.colors); }
 
 // Languages offered in the question "Which other languages do you speak?"
-const OTHER_LANGS = ["English","Russian","Latvian","Spanish","French","German","Ukrainian","Norwegian","Bulgarian","Romanian","Greek"];
+const OTHER_LANGS = ["English", "Russian", "Latvian", "Spanish", "French", "Italian", "German", "Polish", "Ukrainian", "Dutch", "Norwegian", "Bulgarian", "Romanian", "Greek"];
 
 const AGE_GROUPS = ["Under 18","18–24","25–34","35–44","45–54","55–64","65+"];
 
 // Welcome screen: the first line is the big heading, the others are paragraphs.
 const WELCOME = [
-  "Hi!",
-  "Welcome to the survey on color differences in languages!",
-  "Your anonymous responses will be very valuable to us.",
-  "Enjoy the survey!"
+  "Hello!",
+  "Welcome to our survey on how different languages name colors.",
+  "You will see colors one at a time and pick the word that fits each one best. A round takes about a minute. There are no right or wrong answers, so just go with your first impression!",
+  "Your answers are anonymous and going to be used only for research purposes. Taking part is voluntary, and you can stop at any time by closing the page.",
+  "Thank you, and enjoy the survey, we value your answers and time!"
 ];
 
 // All other texts of the survey (English only for now)
@@ -102,7 +346,7 @@ const UI = {
   yes: "Yes", no: "No", notSure: "Not sure",
   brightness: "For best results: set your screen brightness to maximum and turn off night mode or the blue-light filter.",
   sorryTitle: "Thank you for your interest!",
-  sorryText: "At the moment the survey is only available for native speakers of English, Russian and Latvian. We hope to add more languages soon.",
+  sorryText: "At the moment the survey is only available for native speakers of the languages listed in the previous question. We hope to add more languages soon.",
   back: "Back",
   thanksTitle: "Thank you!",
   again: "One more round",
@@ -572,6 +816,7 @@ function answer(i) {
     color_id: c[0],
     hex: c[1],
     answer: i < 0 ? 'NOT_SURE' : L.words[i],
+    answer_category: i < 0 ? 'not_sure' : L.cats[i],
     answer_index: i,
     rt_ms: rt,
     button_order: S.order.join('-')
