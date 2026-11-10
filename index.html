@@ -44,8 +44,8 @@ p{margin:0 0 12px}
    SETTINGS: the part you can edit
    ===================================================================== */
 
-const SURVEY_VERSION = "final"; // Written into every answer, so different versions can be told apart later.
-                                  // Changing it also wipes the saved test answers on your own device. Change it between test versions, never after the real launch.
+const SURVEY_VERSION = "final+"; // Written into every answer, so different versions can be told apart later.
+                                  // Test versions must start with "demo" (their leftovers are wiped from a device when the version changes).
 // Server (Supabase). The publishable key is meant to be public: the database only lets this page ADD rows, never read them.
 const SUPABASE_URL = "https://lmfjfvyptzihlbrzzhji.supabase.co";
 const SUPABASE_KEY = "sb_publishable_iJ050MD-t0F2WLg6YdyuFg_gMZZkJtp";
@@ -315,13 +315,68 @@ const LANGUAGES = {
       grey: "Γκρι",
       white: "Άσπρο"
     }
+  },
+  et: {
+    name: "Eesti",
+    prompt: "Mis värvi see on?",
+    notSure: "Pole kindel (?)",
+    colors: {
+      red: "Punane",
+      orange: "Oranž",
+      yellow: "Kollane",
+      green: "Roheline",
+      blue: "Sinine",
+      purple: "Lilla",
+      brown: "Pruun",
+      pink: "Roosa",
+      black: "Must",
+      grey: "Hall",
+      white: "Valge"
+    }
+  },
+  fi: {
+    name: "Suomi",
+    prompt: "Minkä värinen tämä on?",
+    notSure: "En ole varma (?)",
+    colors: {
+      red: "Punainen",
+      orange: "Oranssi",
+      yellow: "Keltainen",
+      green: "Vihreä",
+      blue: "Sininen",
+      purple: "Violetti",
+      brown: "Ruskea",
+      pink: "Pinkki",
+      black: "Musta",
+      grey: "Harmaa",
+      white: "Valkoinen"
+    }
+  },
+  lt: {
+    name: "Lietuvių",
+    prompt: "Kokia tai spalva?",
+    notSure: "Nesu tikras(-a) (?)",
+    colors: {
+      red: "Raudona",
+      orange: "Oranžinė",
+      yellow: "Geltona",
+      green: "Žalia",
+      light_blue: "Žydra",
+      blue: "Mėlyna",
+      purple: "Violetinė",
+      brown: "Ruda",
+      pink: "Rožinė",
+      black: "Juoda",
+      grey: "Pilka",
+      white: "Balta"
+    }
   }
 };
 // (automatic, do not edit) lists of categories and words used by the code below
 for (const k in LANGUAGES) { const L = LANGUAGES[k]; L.cats = Object.keys(L.colors); L.words = Object.values(L.colors); }
 
 // Languages offered in the question "Which other languages do you speak?"
-const OTHER_LANGS = ["English", "Russian", "Latvian", "Spanish", "French", "Italian", "German", "Polish", "Ukrainian", "Dutch", "Norwegian", "Bulgarian", "Romanian", "Greek"];
+const OTHER_LANGS = ["English", "Russian", "Latvian", "Spanish", "French", "Italian", "German", "Polish", "Ukrainian", "Dutch", "Norwegian", "Bulgarian", "Romanian", "Greek", "Estonian", "Finnish", "Lithuanian"];
 
 const AGE_GROUPS = ["Under 18","18–24","25–34","35–44","45–54","55–64","65+"];
 
@@ -584,8 +639,11 @@ function newId(n) {
   return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
 }
 
-if (store('cs_version') !== SURVEY_VERSION) {
-  try { ['cs_pid', 'cs_rows', 'cs_seen', 'cs_outbox'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+{ // Only leftovers of TEST versions (names starting with "demo") are wiped. Real respondents keep their unsent answers when the version name changes.
+  const prev = store('cs_version');
+  if (prev && String(prev).indexOf('demo') === 0 && prev !== SURVEY_VERSION) {
+    try { ['cs_pid', 'cs_rows', 'cs_seen', 'cs_outbox'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  }
   store('cs_version', SURVEY_VERSION);
 }
 S.pid = store('cs_pid') || newId();
